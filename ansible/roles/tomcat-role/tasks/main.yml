@@ -1,0 +1,119 @@
+---
+- name: sudo apt get update
+  apt: update_cache=yes force_apt_get=yes cache_valid_time=3600
+
+- name: sudo apt-get install default-jdk
+  apt: pkg=default-jdk state=present
+
+- name: sudo groupadd tomcat
+  group:
+    name: tomcat
+    state: present
+
+- name: sudo useradd -s /bin/false -g tomcat -d /opt/tomcat tomcat
+  user:
+    name: tomcat
+    groups:
+      - tomcat
+    shell: /bin/false
+    home: /opt/tomcat
+
+# I Used an updated Tomcat version
+- name: curl -O https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.62/bin/apache-tomcat-9.0.62.tar.gz
+  get_url:
+    url: https://dlcdn.apache.org/tomcat/tomcat-9/v9.0.62/bin/apache-tomcat-9.0.62.tar.gz
+    dest: ~/
+
+- name: mkdir /opt/tomcat
+  file:
+    path: /opt/tomcat
+    state: directory
+
+- name: sudo tar xzvf apache-tomcat-9.0.62.tar.gz -C /opt/tomcat --strip-components=1
+  unarchive:
+    src: "/root/apache-tomcat-9.0.62.tar.gz"
+    dest: "/opt/tomcat"
+    remote_src: yes
+    extra_opts: --strip-components=1
+
+- name: sudo chgrp -R tomcat /opt/tomcat
+  file:
+    path: /opt/tomcat
+    group: tomcat
+    recurse: yes
+
+- name: sudo chmod -R g+r conf
+  file:
+    path: /opt/tomcat/conf
+    mode: "g+r"
+    recurse: yes
+
+- name: sudo chmod g+x conf
+  file:
+    path: /opt/tomcat/conf
+    mode: "g+x"
+
+- name: sudo chown -R tomcat webapps/ work/ temp/ logs/
+  file:
+    path: /opt/tomcat/{{ item.path }}
+    owner: tomcat
+    recurse: yes
+  loop:
+    - { path: webapps/ }
+    - { path: work/ }
+    - { path: temp/ }
+    - { path: logs/ }
+
+
+# There was a miss-writing on it: After=network.targetd
+# I had to use a different path: Environment=JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+
+- name: Add this code to /etc/systemd/system/tomcat.service
+  copy:
+    dest: /etc/systemd/system/tomcat.service
+    content: |
+      [Unit]
+      Description=Apache Tomcat Web Application Container
+      
+      # There was a miss-writing on it: After=network.targetd
+      After=network.target
+      
+      [Service]
+      Type=forking
+      
+      Environment=JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+      
+      Environment=CATALINA_PID=/opt/tomcat/temp/tomcat.pid
+      
+      Environment=CATALINA_HOME=/opt/tomcat
+      
+      Environment=CATALINA_BASE=/opt/tomcat
+      
+      Environment='CATALINA_OPTS=-Xms512M -Xmx1024M -server -XX:+UseParallelGC'
+      
+      Environment='JAVA_OPTS=-Djava.awt.headless=true -Djava.security.egd=file:/dev/./urandom'
+      
+      ExecStart=/opt/tomcat/bin/startup.sh
+      
+      ExecStop=/opt/tomcat/bin/shutdown.sh
+      
+      User=tomcat
+      
+      Group=tomcat
+      
+      UMask=0007
+      
+      RestartSec=10
+      
+      Restart=always
+      
+      [Install]
+      WantedBy=multi-user.target
+
+- name: sudo systemctl daemon-reload
+  command: systemctl daemon-reload
+
+- name: sudo systemctl start tomcat
+  command: systemctl start tomcat
+
+
